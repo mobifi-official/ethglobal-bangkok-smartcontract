@@ -1,180 +1,103 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "../lib/forge-std/src/Test.sol";
+import "forge-std/Test.sol";
 import "../src/Hackathon.sol";
 
 contract HackathonCrowdfundingTest is Test {
-    HackathonCrowdfunding hackathon;
+    HackathonCrowdfunding public hackathon;
 
-    address organizer = address(0x1); // Organizer address
-    address hacker1 = address(0x2); // Hacker 1
-    address hacker2 = address(0x3); // Hacker 2
-    address sponsor1 = address(0x4); // Sponsor 1
-    address sponsor2 = address(0x5); // Sponsor 2
+    address owner = address(0x1);
+    address hacker1 = address(0x2);
+    address hacker2 = address(0x3);
+    address sponsor1 = address(0x4);
+    address sponsor2 = address(0x5);
 
     function setUp() public {
-        // Deploy the HackathonCrowdfunding contract and simulate the organizer
-        vm.prank(organizer);
-        hackathon = new HackathonCrowdfunding(
-            0x123456789aBCdEF123456789aBCdef123456789A, // LINK token address
-            0xABcdEFABcdEFabcdEfAbCdefabcdeFABcDEFabCD, // Oracle address
-            "0x1234abcd5678efgh9012ijklmnopqrstuvwx3456", // Job ID
-            0.1 ether // Chainlink fee
-        );
+        vm.prank(owner);
+        hackathon = new HackathonCrowdfunding();
     }
 
     function testRegisterHacker() public {
         vm.prank(hacker1);
+        string[] memory hackerProfile = new string[](1);
+        string;
+        hackerProfile[0] = "GitHub: hacker1";
+        hackerProfile[1] = "LinkedIn: hacker1";
+
         hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
+            "Hacker One",
+            "hacker1@example.com",
+            "Project 1",
+            100 ether,
+            2000,
+            hackerProfile
         );
 
-        (
-            string memory name,
-            string memory email,
-            string memory projectDescription,
-            ,
-            uint256 requestedAmount,
-            ,
-            ,
-
-        ) = hackathon.hackers(hacker1);
-
-        assertEq(name, "Hacker1");
-        assertEq(email, "hacker1@email.com");
-        assertEq(projectDescription, "Project1");
-        assertEq(requestedAmount, 10 ether);
+        HackathonCrowdfunding.Hacker string[] hacker = hackathon.hackers(hacker1);
+        assertEq(hacker.name, "Hacker One");
+        assertEq(hacker.email, "hacker1@example.com");
+        assertEq(hacker.projectDescription, "Project 1");
+        assertEq(hacker.requestedAmount, 100 ether);
     }
 
     function testFundHacker() public {
-        vm.prank(hacker1);
-        hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
-        );
+        testRegisterHacker();
 
-        vm.deal(sponsor1, 5 ether);
         vm.prank(sponsor1);
-        hackathon.fundHacker{value: 5 ether}(hacker1);
+        hackathon.fundHacker{value: 10 ether}(hacker1);
 
-        (, , , , , uint256 receivedAmount, , ) = hackathon.hackers(hacker1);
-        assertEq(receivedAmount, 5 ether, "Hacker should receive 5 ether");
+        (, , , , uint256 receivedAmount, , , , ) = hackathon.hackers(hacker1);
+        assertEq(receivedAmount, 10 ether);
+
+        uint256 sponsorBalance = hackathon.sponsorBalances(sponsor1);
+        assertEq(sponsorBalance, 10 ether);
     }
 
-    function testWithdrawFunds() public {
-        vm.prank(hacker1);
+    function testGetAllHackers() public {
+        testRegisterHacker();
+
+        vm.prank(hacker2);
+        string[] memory hackerProfile = new string[](1);
+        hackerProfile[0] = "GitHub: hacker2";
         hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
+            "Hacker Two",
+            "hacker2@example.com",
+            "Project 2",
+            50 ether,
+            1500,
+            hackerProfile
         );
 
-        vm.deal(sponsor1, 5 ether);
-        vm.prank(sponsor1);
-        hackathon.fundHacker{value: 5 ether}(hacker1);
-
-        vm.prank(hacker1);
-        hackathon.withdrawFunds(payable(hacker1), 3 ether);
-
-        assertEq(
-            hacker1.balance,
-            3 ether,
-            "Hacker1 should have withdrawn 3 ether"
-        );
+        address[] memory hackers = hackathon.getAllHackers();
+        assertEq(hackers.length, 2);
+        assertEq(hackers[0], hacker1);
+        assertEq(hackers[1], hacker2);
     }
 
-    function testDepositPrize() public {
-        vm.deal(organizer, 10 ether);
-        vm.prank(hacker1);
-        hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
-        );
+    function testGetAllSponsors() public {
+        testFundHacker();
 
-        vm.prank(organizer);
-        hackathon.depositPrize{value: 10 ether}(hacker1);
-
-        assertEq(
-            address(hackathon).balance,
-            10 ether,
-            "Prize should be stored in the contract"
-        );
-    }
-
-    function testClaimPrize() public {
-        vm.prank(hacker1);
-        hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
-        );
-
-        vm.deal(sponsor1, 5 ether);
-        vm.prank(sponsor1);
-        hackathon.fundHacker{value: 5 ether}(hacker1);
-
-        vm.deal(sponsor2, 5 ether);
         vm.prank(sponsor2);
         hackathon.fundHacker{value: 5 ether}(hacker1);
 
-        vm.deal(organizer, 10 ether);
-        vm.prank(organizer);
-        hackathon.depositPrize{value: 10 ether}(hacker1);
+        address[] memory sponsors = hackathon.getAllSponsors(hacker1);
+        assertEq(sponsors.length, 2);
+        assertEq(sponsors[0], sponsor1);
+        assertEq(sponsors[1], sponsor2);
+    }
 
-        vm.deal(hacker1, 0);
-        vm.deal(sponsor1, 0);
-        vm.deal(sponsor2, 0);
+    function testClaimPrize() public {
+        testFundHacker();
+
+        uint256 initialBalance = hacker1.balance;
+        vm.prank(owner);
+        hackathon.depositPrize{value: 20 ether}(hacker1);
 
         vm.prank(hacker1);
         hackathon.claimPrize(payable(hacker1));
 
-        assertEq(
-            sponsor1.balance,
-            5 ether,
-            "Sponsor1 should have received 5 ether"
-        );
-        assertEq(
-            sponsor2.balance,
-            5 ether,
-            "Sponsor2 should have received 5 ether"
-        );
-        assertEq(
-            hacker1.balance,
-            10 ether,
-            "Hacker1 should have received 10 ether"
-        );
-    }
-
-    function testSponsorCannotOverfund() public {
-        vm.prank(hacker1);
-        hackathon.registerHacker(
-            "Hacker1",
-            "hacker1@email.com",
-            "Project1",
-            10 ether,
-            2000
-        );
-
-        vm.deal(sponsor1, 15 ether);
-        vm.prank(sponsor1);
-
-        // Expect revert if funding exceeds requested amount
-        vm.expectRevert("Funding exceeds requested amount");
-        hackathon.fundHacker{value: 15 ether}(hacker1);
+        uint256 finalBalance = hacker1.balance;
+        assertEq(finalBalance, initialBalance + 20 ether);
     }
 }

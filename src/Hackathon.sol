@@ -117,13 +117,13 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     function bookingAccommodation(
         string[] calldata args
     ) external onlyHacker(msg.sender) {
-        require(args.length > 0, "Arguments required.");
+        require(args.length == 5, "Invalid number of arguments.");
 
         string memory detripBooking = "const bookHash = args[0];"
         "const guestName = args[1];"
         "const hotelId = args[2];"
         "const checkInTime = args[3];"
-        "const checkOutTime = args[3];"
+        "const checkOutTime = args[4];"
         "const apiResponse = await Functions.makeHttpRequest({"
         "url: 'https://dev-api.mobifi.info/api/v2/hotel/booking',"
         "method: 'POST',"
@@ -132,14 +132,11 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         "hotel_id: hotelId,"
         "hotel_name: 'Test Hotel (Do Not Book)',"
         "hotel_address: '123 Moscow street, Belogorsk',"
-        "hotel_booking_rate: {},"
         "checkin: checkInTime,"
         "checkout: checkOutTime,"
-        "currency: 'EUR',"
-        "user_billing_detail: {},"
         "guest_detail: [{"
-        "first_name: guestName.split(' ')[0],"
-        "last_name: guestName.split(' ')[1] || '',"
+        "first_name: guestName,"
+        "last_name: guestName,"
         "is_child: false,"
         "age: 20"
         "}],"
@@ -147,10 +144,9 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         "}"
         "});"
         "if (apiResponse.error) {"
-        "throw Error('Request failed');"
+        "return Functions.encodeString('Error: Request failed');"
         "}"
-        "const { data } = apiResponse;"
-        "return Functions.encodeString(JSON.stringify(data));";
+        "return Functions.encodeString(JSON.stringify(apiResponse.data));";
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(detripBooking);
