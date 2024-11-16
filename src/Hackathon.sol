@@ -50,7 +50,13 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     event HackerRegistered(
         address indexed hacker,
         string name,
-        uint256 requestedAmount
+        string email,
+        string githubLink,
+        string competitionName,
+        uint256 requestedAmount,
+        uint256 receivedAmount,
+        uint256 prizePercentageForSponsor,
+        bool exists
     );
     event SponsorFunded(
         address indexed sponsor,
@@ -104,7 +110,17 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
         hackerAddresses.push(msg.sender);
 
-        emit HackerRegistered(msg.sender, _name, _requestedAmount);
+        emit HackerRegistered(
+            msg.sender,
+            _name,
+            _email,
+            _gitHubLink,
+            _competitionName,
+            _requestedAmount,
+            0,
+            _prizePercentageForSponsor,
+            true
+        );
     }
 
     function fundHacker(address _hackerAddress) external payable {
