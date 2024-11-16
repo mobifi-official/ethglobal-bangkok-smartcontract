@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import {FunctionsClient} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/contracts/v0.8/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/libraries/FunctionsRequest.sol";
+import {CCIPReceiver} from "@chainlink/contracts/src/v0.8/ccip/CCIPReceiver.sol";
+import {CCIPSender} from "@chainlink/contracts/src/v0.8/ccip/CCIPSender.sol";
 
 // PUSH Comm Contract Interface
 interface IPUSHCommInterface {
@@ -14,7 +16,7 @@ interface IPUSHCommInterface {
     ) external;
 }
 
-contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
+contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner, CCIPReceiver, CCIPSender {
     using FunctionsRequest for FunctionsRequest.Request;
 
     struct Hacker {
@@ -25,6 +27,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         address hackerAddress;
         uint256 requestedAmount;
         uint256 receivedAmount;
+        uint256 totalPrize;
         uint256 prizePercentageForSponsor; // Basis points (e.g., 20% = 2000)
         bool exists;
         mapping(address => uint256) sponsorContributions;
@@ -50,7 +53,14 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     event HackerRegistered(
         address indexed hacker,
         string name,
-        uint256 requestedAmount
+        string email,
+        string githubLink,
+        string competitionName,
+        uint256 requestedAmount,
+        uint256 receivedAmount,
+        uint256 totalPrize,
+        uint256 prizePercentageForSponsor,
+        bool exists
     );
     event SponsorFunded(
         address indexed sponsor,
@@ -65,8 +75,9 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     );
     event BookingRequestSent(bytes32 indexed requestId);
     event BookingResponseReceived(bytes32 indexed requestId, bool success);
+    event CrossChainFundReceived(address indexed from, uint256 amount, string sourceChain); // New Event for CCIP
 
-    constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
+    constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) CCIPReceiver(router) CCIPSender(router) {}
 
     modifier onlyHacker(address hackerAddress) {
         require(
@@ -98,13 +109,25 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         hacker.competitionName = _competitionName;
         hacker.requestedAmount = _requestedAmount;
         hacker.receivedAmount = 0;
+        hacker.totalPrize = 0;
 
         hacker.prizePercentageForSponsor = _prizePercentageForSponsor;
         hacker.exists = true;
 
         hackerAddresses.push(msg.sender);
 
-        emit HackerRegistered(msg.sender, _name, _requestedAmount);
+        emit HackerRegistered(
+            msg.sender,
+            _name,
+            _email,
+            _gitHubLink,
+            _competitionName,
+            _requestedAmount,
+            0,
+            0,
+            _prizePercentageForSponsor,
+            true
+        );
     }
 
     function fundHacker(address _hackerAddress) external payable {
@@ -124,25 +147,54 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         emit SponsorFunded(msg.sender, _hackerAddress, msg.value);
     }
 
+    // Cross-Chain Funding Function (New Function for CCIP)
+    function crossChainFundHacker(
+        address _hackerAddress,
+        uint256 amount,
+        uint64 destinationChainId
+    ) external payable {
+        require(hackers[_hackerAddress].exists, "Hacker does not exist.");
+        require(msg.value == amount, "Sent value must match the amount.");
+
+        // Send cross-chain request to fund hacker
+        bytes memory data = abi.encode(_hackerAddress);
+        sendCrossChainMessage(destinationChainId, address(this), data, amount);
+    }
+
+    // Override for receiving cross-chain funds (New Function for CCIP)
+    function _onCrossChainMessage(
+        uint64 sourceChainId,
+        address sender,
+        bytes memory data,
+        uint256 amount
+    ) internal override {
+        address hackerAddress = abi.decode(data, (address));
+        require(hackers[hackerAddress].exists, "Hacker does not exist.");
+
+        Hacker storage hacker = hackers[hackerAddress];
+        hacker.receivedAmount += amount;
+
+        emit CrossChainFundReceived(sender, amount, "Fuji Testnet");
+    }
+
     function bookingAccommodation(
         string[] calldata args
-    ) external onlyHacker(msg.sender) {
-        require(args.length == 5, "Invalid number of arguments.");
-
+    ) external onlyHacker(msg.sender) returns (bytes32 requestId) {
         string memory detripBooking = "const bookHash = args[0];"
-        "const guestName = args[1];"
-        "const checkInTime = args[2];"
-        "const checkOutTime = args[3];"
+        "const firstName = args[1];"
+        "const lastName = args[2];"
+        "const checkInTime = args[3];"
+        "const checkOutTime = args[4];"
         "const apiResponse = await Functions.makeHttpRequest({"
         "url: 'https://dev-api.mobifi.info/api/v2/hotel/public-booking',"
         "method: 'POST',"
         "headers: { 'Content-Type': 'application/json' },"
         "data: {"
-        "checkin: checkInTime,"
-        "checkout: checkOutTime,"
+        "check_in: checkInTime,"
+        "check_out: checkOutTime,"
         "guest_data: [{"
-        "first_name: guestName,"
-        "last_name: guestName,"
+        "first_name: firstName,"
+        "last_name: lastName,"
         "}],"
         "book_hash: bookHash"
         "}"
@@ -154,20 +206,22 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(detripBooking);
-        req.setArgs(args);
+        if (args.length > 0) req.setArgs(args);
 
         Hacker storage hacker = hackers[msg.sender];
-        bytes32 requestId = _sendRequest(
+        bytes32 last_requestId = _sendRequest(
             req.encodeCBOR(),
             chainLinkId,
             gasLimit,
             donID
         );
 
-        hacker.lastRequestId = requestId;
-        requestToHacker[requestId] = msg.sender;
+        hacker.lastRequestId = last_requestId;
+        requestToHacker[last_requestId] = msg.sender;
 
-        emit BookingRequestSent(requestId);
+        emit BookingRequestSent(last_requestId);
+
+        return last_requestId;
     }
 
     function fulfillRequest(
@@ -252,6 +306,9 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
         require(msg.value > 0, "Prize amount must be greater than zero.");
 
+        Hacker storage hacker = hackers[_hackerAddress];
+        hacker.totalPrize += msg.value;
+
         emit PrizeDeposited(_hackerAddress, msg.value);
     }
 
@@ -260,7 +317,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         require(address(this).balance > 0, "No prize available.");
 
         Hacker storage hacker = hackers[_hackerAddress];
-        uint256 totalPrize = address(this).balance;
+        uint256 totalPrize = hacker.totalPrize;
         uint256 sponsorTotalContribution;
 
         bool success = false;
