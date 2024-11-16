@@ -5,14 +5,23 @@ import {FunctionsClient} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/Fu
 import {ConfirmedOwner} from "@chainlink/contracts/v0.8/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/libraries/FunctionsRequest.sol";
 
+// PUSH Comm Contract Interface
+interface IPUSHCommInterface {
+    function sendNotification(
+        address _channel,
+        address _recipient,
+        bytes calldata _identity
+    ) external;
+}
+
 contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
 
     struct Hacker {
         string name;
         string email;
-        string projectDescription;
-        string[] hackerProfile;
+        string githubLink;
+        string competitionName;
         address hackerAddress;
         uint256 requestedAmount;
         uint256 receivedAmount;
@@ -70,10 +79,10 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     function registerHacker(
         string memory _name,
         string memory _email,
-        string memory _projectDescription,
+        string memory _gitHubLink,
+        string memory _competitionName,
         uint256 _requestedAmount,
-        uint256 _prizePercentageForSponsor,
-        string[] memory _hackerProfile
+        uint256 _prizePercentageForSponsor
     ) external {
         require(!hackers[msg.sender].exists, "Hacker already registered.");
         require(
@@ -84,11 +93,12 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         Hacker storage hacker = hackers[msg.sender];
         hacker.name = _name;
         hacker.email = _email;
-        hacker.projectDescription = _projectDescription;
+        hacker.githubLink = _gitHubLink;
         hacker.hackerAddress = msg.sender;
+        hacker.competitionName = _competitionName;
         hacker.requestedAmount = _requestedAmount;
         hacker.receivedAmount = 0;
-        hacker.hackerProfile = _hackerProfile;
+
         hacker.prizePercentageForSponsor = _prizePercentageForSponsor;
         hacker.exists = true;
 
@@ -121,24 +131,18 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
         string memory detripBooking = "const bookHash = args[0];"
         "const guestName = args[1];"
-        "const hotelId = args[2];"
-        "const checkInTime = args[3];"
-        "const checkOutTime = args[4];"
+        "const checkInTime = args[2];"
+        "const checkOutTime = args[3];"
         "const apiResponse = await Functions.makeHttpRequest({"
-        "url: 'https://dev-api.mobifi.info/api/v2/hotel/booking',"
+        "url: 'https://dev-api.mobifi.info/api/v2/hotel/public-booking',"
         "method: 'POST',"
         "headers: { 'Content-Type': 'application/json' },"
         "data: {"
-        "hotel_id: hotelId,"
-        "hotel_name: 'Test Hotel (Do Not Book)',"
-        "hotel_address: '123 Moscow street, Belogorsk',"
         "checkin: checkInTime,"
         "checkout: checkOutTime,"
-        "guest_detail: [{"
+        "guest_data: [{"
         "first_name: guestName,"
         "last_name: guestName,"
-        "is_child: false,"
-        "age: 20"
         "}],"
         "book_hash: bookHash"
         "}"
@@ -168,7 +172,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
     function fulfillRequest(
         bytes32 requestId,
-        bytes memory _response,
+        bytes memory response,
         bytes memory err
     ) internal override {
         address hackerAddress = requestToHacker[requestId];
@@ -177,10 +181,71 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         Hacker storage hacker = hackers[hackerAddress];
         require(hacker.lastRequestId == requestId, "Unexpected request ID.");
 
-        // Process the response
-        // Add logic to handle response if needed
+        address ethSepoliaEPNSCommContractAddress = 0x0C34d54a09CFe75BCcd878A469206Ae77E0fe6e7;
+        address pushProtocolChannelAddress = 0xaad4aCF57b7b438Fa607255aaFb183664f80cE14;
 
-        emit BookingResponseReceived(requestId, err.length == 0);
+        IPUSHCommInterface pushNotificationHandler = IPUSHCommInterface(
+            ethSepoliaEPNSCommContractAddress
+        );
+
+        if (err.length == 0) {
+            emit BookingResponseReceived(requestId, false);
+            // Send success notification
+            try
+                pushNotificationHandler.sendNotification(
+                    pushProtocolChannelAddress,
+                    hackerAddress,
+                    bytes(
+                        string(
+                            abi.encodePacked(
+                                "0",
+                                "+",
+                                "3",
+                                "+",
+                                "Request Success Notification Title",
+                                "+",
+                                "Successfully made request"
+                            )
+                        )
+                    )
+                )
+            {
+                // Notification sent successfully
+            } catch {
+                // // Handle notification sending failure (optional)
+                // emit BookingResponseReceived(requestId, false);
+            }
+        } else {
+            emit BookingResponseReceived(requestId, false);
+            // Send failure notification
+            try
+                pushNotificationHandler.sendNotification(
+                    pushProtocolChannelAddress,
+                    hackerAddress,
+                    bytes(
+                        string(
+                            abi.encodePacked(
+                                "0",
+                                "+",
+                                "3",
+                                "+",
+                                "Request Failure Notification Title",
+                                "+",
+                                "Error message body"
+                            )
+                        )
+                    )
+                )
+            {
+                // Failure notification sent successfully
+            } catch {
+                // Handle notification sending failure (optional)
+                // emit BookingResponseReceived(requestId, false);
+            }
+
+            // Revert after sending failure notification
+            revert("Execution error");
+        }
     }
 
     function depositPrize(address _hackerAddress) external payable {
