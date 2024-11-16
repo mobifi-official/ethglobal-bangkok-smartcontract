@@ -19,7 +19,7 @@ install:
 	forge install LayerZero-Labs/devtools --no-commit --no-git && \
 	forge install LayerZero-Labs/layerzero-v2 --no-commit --no-git && \
 	forge install GNSPS/solidity-bytes-utils --no-commit --no-git && \
-	forge install smartcontractkit/foundry-chainlink-toolkit --no-git && \ 
+	forge install smartcontractkit/foundry-chainlink-toolkit --no-git
 
 
 # Deploying the Hackathon smart contract to Sepolia

@@ -25,6 +25,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         address hackerAddress;
         uint256 requestedAmount;
         uint256 receivedAmount;
+        uint256 totalPrize;
         uint256 prizePercentageForSponsor; // Basis points (e.g., 20% = 2000)
         bool exists;
         mapping(address => uint256) sponsorContributions;
@@ -55,6 +56,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         string competitionName,
         uint256 requestedAmount,
         uint256 receivedAmount,
+        uint256 totalPrize,
         uint256 prizePercentageForSponsor,
         bool exists
     );
@@ -104,6 +106,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         hacker.competitionName = _competitionName;
         hacker.requestedAmount = _requestedAmount;
         hacker.receivedAmount = 0;
+        hacker.totalPrize = 0;
 
         hacker.prizePercentageForSponsor = _prizePercentageForSponsor;
         hacker.exists = true;
@@ -117,6 +120,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
             _gitHubLink,
             _competitionName,
             _requestedAmount,
+            0,
             0,
             _prizePercentageForSponsor,
             true
@@ -268,6 +272,9 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
         require(msg.value > 0, "Prize amount must be greater than zero.");
 
+        Hacker storage hacker = hackers[_hackerAddress];
+        hacker.totalPrize += msg.value;
+
         emit PrizeDeposited(_hackerAddress, msg.value);
     }
 
@@ -276,7 +283,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         require(address(this).balance > 0, "No prize available.");
 
         Hacker storage hacker = hackers[_hackerAddress];
-        uint256 totalPrize = address(this).balance;
+        uint256 totalPrize = hacker.totalPrize;
         uint256 sponsorTotalContribution;
 
         bool success = false;
