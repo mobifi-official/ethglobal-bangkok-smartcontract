@@ -146,23 +146,22 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
     function bookingAccommodation(
         string[] calldata args
-    ) external onlyHacker(msg.sender) {
-        require(args.length == 5, "Invalid number of arguments.");
-
+    ) external onlyHacker(msg.sender) returns (bytes32 requestId) {
         string memory detripBooking = "const bookHash = args[0];"
-        "const guestName = args[1];"
-        "const checkInTime = args[2];"
-        "const checkOutTime = args[3];"
+        "const firstName = args[1];"
+        "const lastName = args[2];"
+        "const checkInTime = args[3];"
+        "const checkOutTime = args[4];"
         "const apiResponse = await Functions.makeHttpRequest({"
         "url: 'https://dev-api.mobifi.info/api/v2/hotel/public-booking',"
         "method: 'POST',"
         "headers: { 'Content-Type': 'application/json' },"
         "data: {"
-        "checkin: checkInTime,"
-        "checkout: checkOutTime,"
+        "check_in: checkInTime,"
+        "check_out: checkOutTime,"
         "guest_data: [{"
-        "first_name: guestName,"
-        "last_name: guestName,"
+        "first_name: firstName,"
+        "last_name: lastName,"
         "}],"
         "book_hash: bookHash"
         "}"
@@ -174,20 +173,22 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(detripBooking);
-        req.setArgs(args);
+         if (args.length > 0) req.setArgs(args);
 
         Hacker storage hacker = hackers[msg.sender];
-        bytes32 requestId = _sendRequest(
+          bytes32 last_requestId = _sendRequest(
             req.encodeCBOR(),
             chainLinkId,
             gasLimit,
             donID
         );
 
-        hacker.lastRequestId = requestId;
-        requestToHacker[requestId] = msg.sender;
+        hacker.lastRequestId = last_requestId;
+        requestToHacker[last_requestId] = msg.sender;
 
-        emit BookingRequestSent(requestId);
+        emit BookingRequestSent(last_requestId);
+
+        return last_requestId;
     }
 
     function fulfillRequest(
