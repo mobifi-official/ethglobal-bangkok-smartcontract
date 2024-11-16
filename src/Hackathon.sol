@@ -19,27 +19,24 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         uint256 prizePercentageForSponsor; // Basis points (e.g., 20% = 2000)
         bool exists;
         mapping(address => uint256) sponsorContributions;
-        address[] sponsorList; // List of sponsors
-        bytes32 s_lastRequestId;
+        address[] sponsorList;
+        bytes32 lastRequestId;
     }
 
-    address private oracle;
-    bytes32 private jobId;
-    uint256 private fee;
-
-    uint256 private chainLinkId = 3941;
-
-    address private sepoliaROuter = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
-
-    uint32 private gasLimit = 300000;
-    bytes32 private donID =
+    address private immutable oracle;
+    uint64 private immutable chainLinkId = 3941;
+    uint32 private immutable gasLimit = 300000;
+    bytes32 private immutable donID =
         0x66756e2d657468657265756d2d7365706f6c69612d3100000000000000000000;
 
-    mapping(bytes32 => bool) public bookingStatus;
+    address router = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
 
+    mapping(bytes32 => bool) public bookingStatus;
     mapping(address => Hacker) public hackers;
-    mapping(bytes32 => Hacker) public hackersRequestId;
+    mapping(bytes32 => address) public requestToHacker;
     mapping(address => uint256) public sponsorBalances;
+
+    address[] private hackerAddresses;
 
     event HackerRegistered(
         address indexed hacker,
@@ -60,7 +57,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     event BookingRequestSent(bytes32 indexed requestId);
     event BookingResponseReceived(bytes32 indexed requestId, bool success);
 
-    constructor() FunctionsClient(sepoliaROuter) ConfirmedOwner(msg.sender) {}
+    constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
 
     modifier onlyHacker(address hackerAddress) {
         require(
@@ -75,7 +72,8 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         string memory _email,
         string memory _projectDescription,
         uint256 _requestedAmount,
-        uint256 _prizePercentageForSponsor
+        uint256 _prizePercentageForSponsor,
+        string[] memory _hackerProfile
     ) external {
         require(!hackers[msg.sender].exists, "Hacker already registered.");
         require(
@@ -90,8 +88,11 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         hacker.hackerAddress = msg.sender;
         hacker.requestedAmount = _requestedAmount;
         hacker.receivedAmount = 0;
+        hacker.hackerProfile = _hackerProfile;
         hacker.prizePercentageForSponsor = _prizePercentageForSponsor;
         hacker.exists = true;
+
+        hackerAddresses.push(msg.sender);
 
         emit HackerRegistered(msg.sender, _name, _requestedAmount);
     }
@@ -113,12 +114,16 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         emit SponsorFunded(msg.sender, _hackerAddress, msg.value);
     }
 
-    function bookingAccomodation(
+    function bookingAccommodation(
         string[] calldata args
     ) external onlyHacker(msg.sender) {
-        string detripBooking = "const bookHash = args[0];"
+        require(args.length > 0, "Arguments required.");
+
+        string memory detripBooking = "const bookHash = args[0];"
         "const guestName = args[1];"
         "const hotelId = args[2];"
+        "const checkInTime = args[3];"
+        "const checkOutTime = args[3];"
         "const apiResponse = await Functions.makeHttpRequest({"
         "url: 'https://dev-api.mobifi.info/api/v2/hotel/booking',"
         "method: 'POST',"
@@ -128,8 +133,8 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         "hotel_name: 'Test Hotel (Do Not Book)',"
         "hotel_address: '123 Moscow street, Belogorsk',"
         "hotel_booking_rate: {},"
-        "checkin: '2024-12-14',"
-        "checkout: '2024-12-15',"
+        "checkin: checkInTime,"
+        "checkout: checkOutTime,"
         "currency: 'EUR',"
         "user_billing_detail: {},"
         "guest_detail: [{"
@@ -148,44 +153,38 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         "return Functions.encodeString(JSON.stringify(data));";
 
         FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(detripBooking); // Initialize the request with JS code
-        if (args.length > 0) req.setArgs(args); // Set the arguments for the request
+        req.initializeRequestForInlineJavaScript(detripBooking);
+        req.setArgs(args);
 
         Hacker storage hacker = hackers[msg.sender];
-
-        // Send the request and store the request ID
-        hacker.s_lastRequestId = _sendRequest(
+        bytes32 requestId = _sendRequest(
             req.encodeCBOR(),
             chainLinkId,
             gasLimit,
             donID
         );
 
-        return hacker.s_lastRequestId;
+        hacker.lastRequestId = requestId;
+        requestToHacker[requestId] = msg.sender;
+
+        emit BookingRequestSent(requestId);
     }
 
     function fulfillRequest(
         bytes32 requestId,
-        bytes memory response,
+        bytes memory _response,
         bytes memory err
     ) internal override {
-        Hacker storage hacker = requestId[requestId]; // I want to find the hacker
-        if (hacker.s_lastRequestId != requestId) {
-            revert UnexpectedRequestID(requestId); // Check if request IDs match
-        }
-        // Update the contract's state variables with the response and any errors
-        s_lastResponse = response;
-        s_lastError = err;
+        address hackerAddress = requestToHacker[requestId];
+        require(hackerAddress != address(0), "Request ID not recognized.");
 
-        // Emit an event to log the response
-        emit Response(requestId, s_lastResponse, s_lastError);
+        Hacker storage hacker = hackers[hackerAddress];
+        require(hacker.lastRequestId == requestId, "Unexpected request ID.");
 
-        address targetContractAddress = 0x6F003fe9Fe4dd0d28DcA1749Fef54ec57fd3BCD2;
+        // Process the response
+        // Add logic to handle response if needed
 
-        // Call target contract if address is set
-        if (targetContractAddress != address(0)) {
-            ITargetContract(targetContractAddress).targetMethod(response);
-        }
+        emit BookingResponseReceived(requestId, err.length == 0);
     }
 
     function depositPrize(address _hackerAddress) external payable {
@@ -199,11 +198,11 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
         require(address(this).balance > 0, "No prize available.");
 
-        bool success = false;
-
         Hacker storage hacker = hackers[_hackerAddress];
         uint256 totalPrize = address(this).balance;
         uint256 sponsorTotalContribution;
+
+        bool success = false;
 
         for (uint256 i = 0; i < hacker.sponsorList.length; i++) {
             sponsorTotalContribution += hacker.sponsorContributions[
@@ -223,5 +222,16 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         uint256 hackerShare = totalPrize - sponsorTotalContribution;
         (success, ) = _hackerAddress.call{value: hackerShare}("");
         require(success, "Hacker transfer failed.");
+    }
+
+    function getAllHackers() external view returns (address[] memory) {
+        return hackerAddresses;
+    }
+
+    function getAllSponsors(
+        address _hackerAddress
+    ) external view returns (address[] memory) {
+        require(hackers[_hackerAddress].exists, "Hacker does not exist.");
+        return hackers[_hackerAddress].sponsorList;
     }
 }
