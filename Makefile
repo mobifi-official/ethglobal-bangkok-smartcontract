@@ -24,7 +24,7 @@ install:
 
 # Deploying the Hackathon smart contract to Sepolia
 deploy-testnet-sepolia:
-	forge script script/DeployHackathon.s.sol:DeployHackathon --sig "run()" --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(SEPOLIA_ETHERSCAN_API_KEY) -vvvv
+	forge script script/DeployHackathon.s.sol:DeployHackathon --sig "run()" --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY) --broadcast --verify --verifier blockscout --verifier-url https://eth-sepolia.blockscout.com/api/ -vvvv
 
 # Deploying the Hackathon smart contract to another testnet (replace BITLAYER_TESTNET as needed)
 deploy-bitlayer-testnet:
