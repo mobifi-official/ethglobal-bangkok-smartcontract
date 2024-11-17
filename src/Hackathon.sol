@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-
 import {FunctionsClient} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/contracts/v0.8/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/contracts/v0.8/functions/dev/v1_0_0/libraries/FunctionsRequest.sol";
-
 // PUSH Comm Contract Interface
 interface IPUSHCommInterface {
     function sendNotification(
@@ -13,10 +11,8 @@ interface IPUSHCommInterface {
         bytes calldata _identity
     ) external;
 }
-
 contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
-
     struct Hacker {
         string name;
         string email;
@@ -32,22 +28,19 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         address[] sponsorList;
         bytes32 lastRequestId;
     }
-
     address private immutable oracle;
     uint64 private immutable chainLinkId = 3941;
     uint32 private immutable gasLimit = 300000;
     bytes32 private immutable donID =
         0x66756e2d657468657265756d2d7365706f6c69612d3100000000000000000000;
-
     address router = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
-
     mapping(bytes32 => bool) public bookingStatus;
     mapping(address => Hacker) public hackers;
     mapping(bytes32 => address) public requestToHacker;
     mapping(address => uint256) public sponsorBalances;
-
+    mapping(address => uint256) public hackerPrizes;
+    mapping(address => mapping(address => uint256)) public sponsorClaims;
     address[] private hackerAddresses;
-
     event HackerRegistered(
         address indexed hacker,
         string name,
@@ -73,9 +66,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     );
     event BookingRequestSent(bytes32 indexed requestId);
     event BookingResponseReceived(bytes32 indexed requestId, bool success);
-
     constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
-
     modifier onlyHacker(address hackerAddress) {
         require(
             msg.sender == hackerAddress,
@@ -83,7 +74,6 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         );
         _;
     }
-
     function registerHacker(
         string memory _name,
         string memory _email,
@@ -97,7 +87,6 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
             _prizePercentageForSponsor <= 10000,
             "Percentage cannot exceed 100%."
         );
-
         Hacker storage hacker = hackers[msg.sender];
         hacker.name = _name;
         hacker.email = _email;
@@ -107,12 +96,9 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         hacker.requestedAmount = _requestedAmount;
         hacker.receivedAmount = 0;
         hacker.totalPrize = 0;
-
         hacker.prizePercentageForSponsor = _prizePercentageForSponsor;
         hacker.exists = true;
-
         hackerAddresses.push(msg.sender);
-
         emit HackerRegistered(
             msg.sender,
             _name,
@@ -126,24 +112,18 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
             true
         );
     }
-
     function fundHacker(address _hackerAddress) external payable {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
         require(msg.value > 0, "Funding amount must be greater than zero.");
-
         Hacker storage hacker = hackers[_hackerAddress];
         hacker.receivedAmount += msg.value;
-
         if (hacker.sponsorContributions[msg.sender] == 0) {
             hacker.sponsorList.push(msg.sender);
         }
-
         hacker.sponsorContributions[msg.sender] += msg.value;
         sponsorBalances[msg.sender] += msg.value;
-
         emit SponsorFunded(msg.sender, _hackerAddress, msg.value);
     }
-
     function bookingAccommodation(
         string[] calldata args
     ) external onlyHacker(msg.sender) returns (bytes32 requestId) {
@@ -170,27 +150,21 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
         "return Functions.encodeString('Error: Request failed');"
         "}"
         "return Functions.encodeString(JSON.stringify(apiResponse.data));";
-
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(detripBooking);
-         if (args.length > 0) req.setArgs(args);
-
+        if (args.length > 0) req.setArgs(args);
         Hacker storage hacker = hackers[msg.sender];
-          bytes32 last_requestId = _sendRequest(
+        bytes32 last_requestId = _sendRequest(
             req.encodeCBOR(),
             chainLinkId,
             gasLimit,
             donID
         );
-
         hacker.lastRequestId = last_requestId;
         requestToHacker[last_requestId] = msg.sender;
-
         emit BookingRequestSent(last_requestId);
-
         return last_requestId;
     }
-
     function fulfillRequest(
         bytes32 requestId,
         bytes memory response,
@@ -198,17 +172,13 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
     ) internal override {
         address hackerAddress = requestToHacker[requestId];
         require(hackerAddress != address(0), "Request ID not recognized.");
-
         Hacker storage hacker = hackers[hackerAddress];
         require(hacker.lastRequestId == requestId, "Unexpected request ID.");
-
         address ethSepoliaEPNSCommContractAddress = 0x0C34d54a09CFe75BCcd878A469206Ae77E0fe6e7;
         address pushProtocolChannelAddress = 0xaad4aCF57b7b438Fa607255aaFb183664f80cE14;
-
         IPUSHCommInterface pushNotificationHandler = IPUSHCommInterface(
             ethSepoliaEPNSCommContractAddress
         );
-
         if (err.length == 0) {
             emit BookingResponseReceived(requestId, false);
             // Send success notification
@@ -233,7 +203,7 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
             {
                 // Notification sent successfully
             } catch {
-                // // Handle notification sending failure (optional)
+                // Handle notification sending failure (optional)
                 // emit BookingResponseReceived(requestId, false);
             }
         } else {
@@ -263,56 +233,53 @@ contract HackathonCrowdfunding is FunctionsClient, ConfirmedOwner {
                 // Handle notification sending failure (optional)
                 // emit BookingResponseReceived(requestId, false);
             }
-
             // Revert after sending failure notification
             revert("Execution error");
         }
     }
-
     function depositPrize(address _hackerAddress) external payable {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
         require(msg.value > 0, "Prize amount must be greater than zero.");
-
         Hacker storage hacker = hackers[_hackerAddress];
         hacker.totalPrize += msg.value;
-
         emit PrizeDeposited(_hackerAddress, msg.value);
     }
-
-    function claimPrize(address payable _hackerAddress) external {
+    function claimPrize(address _hackerAddress) external {
         require(hackers[_hackerAddress].exists, "Hacker does not exist.");
-        require(address(this).balance > 0, "No prize available.");
-
+        require(hackers[_hackerAddress].totalPrize > 0, "No prize available.");
         Hacker storage hacker = hackers[_hackerAddress];
         uint256 totalPrize = hacker.totalPrize;
+        hacker.totalPrize = 0; // Prevent re-entrancy
         uint256 sponsorTotalContribution;
-
-        bool success = false;
-
         for (uint256 i = 0; i < hacker.sponsorList.length; i++) {
-            sponsorTotalContribution += hacker.sponsorContributions[
-                hacker.sponsorList[i]
-            ];
+            sponsorTotalContribution += hacker.sponsorContributions[hacker.sponsorList[i]];
         }
-
         for (uint256 i = 0; i < hacker.sponsorList.length; i++) {
             address sponsor = hacker.sponsorList[i];
-            uint256 sponsorShare = (totalPrize *
-                hacker.sponsorContributions[sponsor]) /
-                sponsorTotalContribution;
-            (success, ) = payable(sponsor).call{value: sponsorShare}("");
-            require(success, "Sponsor transfer failed.");
+            uint256 sponsorShare = (totalPrize * hacker.sponsorContributions[sponsor]) / sponsorTotalContribution;
+            sponsorClaims[_hackerAddress][sponsor] += sponsorShare;
         }
-
         uint256 hackerShare = totalPrize - sponsorTotalContribution;
-        (success, ) = _hackerAddress.call{value: hackerShare}("");
-        require(success, "Hacker transfer failed.");
+        hackerPrizes[_hackerAddress] += hackerShare;
+        emit PrizeDeposited(_hackerAddress, totalPrize);
     }
-
+    function withdrawPrize() external {
+        uint256 amount = hackerPrizes[msg.sender];
+        require(amount > 0, "No prize to withdraw.");
+        hackerPrizes[msg.sender] = 0;
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Transfer failed.");
+    }
+    function withdrawSponsorShare(address _hackerAddress) external {
+        uint256 amount = sponsorClaims[_hackerAddress][msg.sender];
+        require(amount > 0, "No sponsor share to withdraw.");
+        sponsorClaims[_hackerAddress][msg.sender] = 0;
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Transfer failed.");
+    }
     function getAllHackers() external view returns (address[] memory) {
         return hackerAddresses;
     }
-
     function getAllSponsors(
         address _hackerAddress
     ) external view returns (address[] memory) {
